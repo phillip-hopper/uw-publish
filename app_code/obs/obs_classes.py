@@ -1,8 +1,12 @@
 from __future__ import print_function, unicode_literals
+
+import codecs
 from datetime import datetime
 import os
 import chapters_and_frames
 from general_tools.file_utils import load_json_object
+
+from app_code.util import app_utils
 
 
 class OBSStatus(object):
@@ -124,3 +128,19 @@ class OBS(object):
             return True
         else:
             return False
+
+    @staticmethod
+    def get_readme_text():
+        file_name = os.path.join(app_utils.get_static_dir(), 'obs_readme.md')
+        with codecs.open(file_name, 'r', encoding='utf-8') as in_file:
+            return in_file.read()
+
+    @staticmethod
+    def get_front_matter():
+        file_name = os.path.join(app_utils.get_static_dir(), 'obs-front-matter.json')
+        return load_json_object(file_name, {})
+
+    @staticmethod
+    def get_back_matter():
+        file_name = os.path.join(app_utils.get_static_dir(), 'obs-back-matter.json')
+        return load_json_object(file_name, {})

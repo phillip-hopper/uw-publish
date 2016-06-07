@@ -11,15 +11,25 @@
 #
 #  Requires PyGithub for unfoldingWord export.
 
-import re
-import json
-import glob
+from __future__ import print_function, unicode_literals
+
 import codecs
+import json
+import os
+import sys
+import re
+# import json
+# import glob
+# import codecs
 import argparse
 import datetime
 from general_tools.git_wrapper import *
+from general_tools.file_utils import write_file, load_json_object
 from general_tools.smartquotes import smartquotes
 
+from app_code.obs.obs_classes import OBS
+from app_code.util import app_utils
+from app_code.util.languages import Language
 
 root = '/var/www/vhosts/door43.org/httpdocs/data/gitrepo'
 pages = os.path.join(root, 'pages')
@@ -28,9 +38,9 @@ export_dir = '/var/www/vhosts/door43.org/httpdocs/exports'
 unfoldingWord_dir = '/var/www/vhosts/api.unfoldingword.org/httpdocs/obs/txt/1/'
 rtl = ['he', 'ar', 'fa']
 img_url = 'https://api.unfoldingword.org/obs/jpg/1/{0}/360px/obs-{0}-{1}.jpg'
-lang_names = os.path.join('/var/www/vhosts/door43.org',
-                          'httpdocs/lib/plugins/door43translation/lang/langnames.txt')
-statusheaders = ('publish_date',
+
+
+status_headers = ('publish_date',
                  'version',
                  'contributors',
                  'checking_entity',
@@ -38,58 +48,28 @@ statusheaders = ('publish_date',
                  'source_text',
                  'source_text_version',
                  'comments',
-                 )
-readme = u'''
-unfoldingWord | Open Bible Stories
-==================================
+                  )
 
-*an unrestricted visual mini-Bible in any language*
+# regular expressions for splitting the chapter into components
+title_re = re.compile(r'======.*', re.UNICODE)
+ref_re = re.compile(r'//.*//', re.UNICODE)
+frame_re = re.compile(r'{{[^{]*', re.DOTALL | re.UNICODE)
+fr_id_re = re.compile(r'[0-5][0-9]-[0-9][0-9]', re.UNICODE)
+num_re = re.compile(r'([0-5][0-9]).txt', re.UNICODE)
 
-http://openbiblestories.com
+# regular expressions for removing text formatting
+html_tag_re = re.compile(r'<.*?>', re.UNICODE)
+link_tag_re = re.compile(r'\[\[.*?\]\]', re.UNICODE)
+img_tag_re = re.compile(r'{{.*?}}', re.UNICODE)
+img_link_re = re.compile(r'https://.*\.(jpg|jpeg|gif)', re.UNICODE)
 
-Created by Distant Shores Media (http://distantshores.org) and the Door43 world missions community (http://door43.org).
-
-
-License
-=======
-
-This work is made available under a Creative Commons Attribution-ShareAlike 4.0 International License (http://creativecommons.org/licenses/by-sa/4.0/).
-
-You are free:
-
-* Share — copy and redistribute the material in any medium or format
-* Adapt — remix, transform, and build upon the material for any purpose, even commercially.
-
-Under the following conditions:
-
-* Attribution — You must attribute the work as follows: "Original work available at http://openbiblestories.com." Attribution statements in derivative works should not in any way suggest that we endorse you or your use of this work.
-* ShareAlike — If you remix, transform, or build upon the material, you must distribute your contributions under the same license as the original.
-
-Use of trademarks: unfoldingWord is a trademark of Distant Shores Media and may not be included on any derivative works created from this content.  Unaltered content from http://openbiblestories.com must include the unfoldingWord logo when distributed to others. But if you alter the content in any way, you must remove the unfoldingWord logo before distributing your work.
-
-Attribution of artwork: All images used in these stories are © Sweet Publishing (www.sweetpublishing.com) and are made available under a Creative Commons Attribution-Share Alike License (http://creativecommons.org/licenses/by-sa/3.0).
-'''
-
-# Regexes for splitting the chapter into components
-titlere = re.compile(ur'======.*', re.UNICODE)
-refre = re.compile(ur'//.*//', re.UNICODE)
-framere = re.compile(ur'{{[^{]*', re.DOTALL | re.UNICODE)
-fridre = re.compile(ur'[0-5][0-9]-[0-9][0-9]', re.UNICODE)
-numre = re.compile(ur'([0-5][0-9]).txt', re.UNICODE)
-
-# Regexes for removing text formatting
-htmltagre = re.compile(ur'<.*?>', re.UNICODE)
-linktagre = re.compile(ur'\[\[.*?\]\]', re.UNICODE)
-imgtagre = re.compile(ur'{{.*?}}', re.UNICODE)
-imglinkre = re.compile(ur'https://.*\.(jpg|jpeg|gif)', re.UNICODE)
-
-# Regexes for front matter
-obsnamere = re.compile(ur'\| (.*)\*\*', re.UNICODE)
-taglinere = re.compile(ur'\n\*\*.*openbiblestories', re.UNICODE | re.DOTALL)
-linkre = re.compile(ur'\[\[.*?\]\]', re.UNICODE)
+# regular expressions for front matter
+obs_name_re = re.compile(r'\| (.*)\*\*', re.UNICODE)
+tag_line_re = re.compile(r'\n\*\*.*openbiblestories', re.UNICODE | re.DOTALL)
+link_re = re.compile(r'\[\[.*?\]\]', re.UNICODE)
 
 
-obsframeset = set([
+obs_frame_set = set([
     "01-01", "01-02", "01-03", "01-04", "01-05", "01-06", "01-07", "01-08", "01-09", "01-10", "01-11", "01-12", "01-13", "01-14", "01-15", "01-16",
     "02-01", "02-02", "02-03", "02-04", "02-05", "02-06", "02-07", "02-08", "02-09", "02-10", "02-11", "02-12",
     "03-01", "03-02", "03-03", "03-04", "03-05", "03-06", "03-07", "03-08", "03-09", "03-10", "03-11", "03-12", "03-13", "03-14", "03-15", "03-16",
@@ -143,155 +123,153 @@ obsframeset = set([
 ])
 
 
-def getChapter(chapterpath, jsonchapter, lang):
-    chapter = codecs.open(chapterpath, 'r', encoding='utf-8').read()
+def get_chapter(chapter_path, json_chapter):
+
+    with codecs.open(chapter_path, 'r', encoding='utf-8') as in_file:
+        chapter = in_file.read()
+
     # Get title for chapter
-    title = titlere.search(chapter)
+    title = title_re.search(chapter)
     if title:
-        jsonchapter['title'] = title.group(0).replace('=', '').strip()
+        json_chapter['title'] = title.group(0).replace('=', '').strip()
     else:
-        jsonchapter['title'] = u'NOT FOUND'
-        print u'NOT FOUND: title in {0}'.format(chapterpath)
+        json_chapter['title'] = u'NOT FOUND'
+        print('NOT FOUND: title in {0}'.format(chapter_path))
     # Get reference for chapter
-    ref = refre.search(chapter)
+    ref = ref_re.search(chapter)
     if ref:
-        jsonchapter['ref'] = ref.group(0).replace('/', '').strip()
+        json_chapter['ref'] = ref.group(0).replace('/', '').strip()
     else:
-        jsonchapter['ref'] = u'NOT FOUND'
-        print u'NOT FOUND: reference in {0}'.format(chapterpath)
+        json_chapter['ref'] = u'NOT FOUND'
+        print('NOT FOUND: reference in {0}'.format(chapter_path))
     # Get the frames
-    for fr in framere.findall(chapter):
-        frlines = fr.split('\n')
-        frse = fridre.search(fr)
-        if frse:
-            frid = frse.group(0)
+    for fr in frame_re.findall(chapter):
+        fr_lines = fr.split('\n')
+        fr_se = fr_id_re.search(fr)
+        if fr_se:
+            fr_id = fr_se.group(0)
         else:
-            frid = u'NOT FOUND'
-            print u'NOT FOUND: frame id in {0}'.format(chapterpath)
-        frame = { 'id': frid,
-                  'img': getImg(frlines[0].strip(), lang, frid),
-                  'text': getText(frlines[1:], lang, frid)
+            fr_id = u'NOT FOUND'
+            print('NOT FOUND: frame id in {0}'.format(chapter_path))
+        frame = { 'id': fr_id,
+                  'img': get_img(fr_lines[0].strip(), fr_id),
+                  'text': get_text(fr_lines[1:])
                 }
-        jsonchapter['frames'].append(frame)
+        json_chapter['frames'].append(frame)
     # Sort frames
-    jsonchapter['frames'].sort(key=lambda frame: frame['id'])
-    return jsonchapter
+    json_chapter['frames'].sort(key=lambda f: f['id'])
+    return json_chapter
 
-def getImg(link, lang, frid):
-    linkse = imglinkre.search(link)
-    if linkse:
-        link = linkse.group(0)
+
+def get_img(link, frame_id):
+    link_se = img_link_re.search(link)
+    if link_se:
+        link = link_se.group(0)
         return link
-    return img_url.format('en', frid)
+    return img_url.format('en', frame_id)
 
-def getText(lines, lang, frid):
-    '''
+
+def get_text(lines):
+    """
     Groups lines into a string and runs through cleanText and smartquotes.
-    '''
+    """
     text = u''.join([x for x in lines[1:] if u'//' not in x]).strip()
     text = text.replace(u'\\\\', u'').replace(u'**', u'').replace(u'__', u'')
-    text = cleanText(text, lang, frid)
+    text = clean_text(text)
     text = smartquotes(text)
     return text
 
-def cleanText(text, lang, frid):
-    '''
+
+def clean_text(text):
+    """
     Cleans up text from possible DokuWiki and HTML tag pollution.
-    '''
-    if htmltagre.search(text):
-        text = htmltagre.sub(u'', text)
-    if linktagre.search(text):
-        text = linktagre.sub(u'', text)
-    if imgtagre.search(text):
-        text = imgtagre.sub(u'', text)
+    """
+    if html_tag_re.search(text):
+        text = html_tag_re.sub(u'', text)
+    if link_tag_re.search(text):
+        text = link_tag_re.sub(u'', text)
+    if img_tag_re.search(text):
+        text = img_tag_re.sub(u'', text)
     return text
 
-def writePage(outfile, p):
-    makeDir(outfile.rpartition('/')[0])
-    f = codecs.open(outfile.replace('.txt', '.json'), 'w', encoding='utf-8')
-    f.write(p)
-    f.close()
 
-def makeDir(d):
-    if not os.path.exists(d):
-        os.makedirs(d, 0755)
+def write_page(outfile, p):
+    write_file(outfile.replace('.txt', '.json'), p)
 
-def getDump(j):
+
+def get_dump(j):
     return json.dumps(j, sort_keys=True)
 
-def loadJSON(f, t):
-    if os.path.isfile(f):
-        return json.load(open(f, 'r'))
-    if t == 'd':
-      return json.loads('{}')
-    else:
-      return json.loads('[]')
 
-def loadLangStrings(path):
-    langdict = {}
-    if not os.path.isfile(path):
-        return langdict
-    for line in codecs.open(path, 'r', encoding='utf-8').readlines():
-        if ( line.startswith(u'#') or line.startswith(u'\n')
-                                                  or line.startswith(u'\r') ):
-            continue
-        code,string = line.split(None, 1)
-        langdict[code.strip()] = string.strip()
-    return langdict
+def load_lang_strings():
+    langs = Language.load_languages()
+    lang_dict = {}
+    if not langs:
+        return lang_dict
 
-def getJSONDict(statfile):
-    status = {}
-    if os.path.isfile(statfile):
-        for line in codecs.open(statfile, 'r', encoding='utf-8'):
-            if ( line.startswith(u'#') or line.startswith(u'\n')
-                              or line.startswith(u'{{') or u':' not in line ):
+    for lang_obj in langs:  # :type Language
+        lang_dict[lang_obj.lc] = lang_obj.ln
+
+    return lang_dict
+
+
+def get_json_dict(stat_file):
+    return_val = {}
+    if os.path.isfile(stat_file):
+        for line in codecs.open(stat_file, 'r', encoding='utf-8'):
+
+            if line.startswith(u'#') or line.startswith(u'\n') or line.startswith(u'{{') or u':' not in line:
                 continue
-            newline = cleanText(line, statfile, line)
+
+            newline = clean_text(line)
             k, v = newline.split(u':', 1)
-            status[k.strip().lower().replace(u' ', u'_')] = v.strip()
+            return_val[k.strip().lower().replace(u' ', u'_')] = v.strip()
+    return return_val
+
+
+def clean_status(status_dict):
+    for key in [k for k in status_dict.keys()]:
+        if key not in status_headers:
+            del status[key]
     return status
 
-def cleanStatus(status):
-    for k in [x for x in status.iterkeys()]:
-        if k not in statusheaders:
-            del status[k]
-    return status
 
-def exportunfoldingWord(status, gitdir, json, lang, githuborg, frontj, backj):
-    '''
+def export_unfolding_word(status_dict, git_dir, json_data, lang_code, github_org, frontj, backj):
+    """
     Exports JSON data for each language into its own Github repo.
-    '''
-    makeDir(gitdir)
-    writePage(os.path.join(gitdir, 'obs-{0}.json'.format(lang)), json)
-    writePage(os.path.join(gitdir, 'obs-{0}-front-matter.json'.format(lang)),
-                                                                       frontj)
-    writePage(os.path.join(gitdir, 'obs-{0}-back-matter.json'.format(lang)),
-                                                                        backj)
-    statjson = getDump(cleanStatus(status))
-    writePage(os.path.join(gitdir, 'status-{0}.json'.format(lang)), statjson)
-    writePage(os.path.join(gitdir, 'README.md'), readme)
-    gitCreate(gitdir)
-    name = 'obs-{0}'.format(lang)
-    desc = 'Open Bible Stories for {0}'.format(lang)
-    url = 'http://unfoldingword.org/{0}/'.format(lang)
-    githubCreate(gitdir, name, desc, url, githuborg)
-    commitmsg = str(status)
-    gitCommit(gitdir, commitmsg)
-    gitPush(gitdir)
+    """
+    write_page(os.path.join(git_dir, 'obs-{0}.json'.format(lang_code)), json_data)
+    write_page(os.path.join(git_dir, 'obs-{0}-front-matter.json'.format(lang_code)),
+               frontj)
+    write_page(os.path.join(git_dir, 'obs-{0}-back-matter.json'.format(lang_code)),
+               backj)
+
+    write_page(os.path.join(git_dir, 'status-{0}.json'.format(lang_code)), clean_status(status_dict))
+    write_page(os.path.join(git_dir, 'README.md'), OBS.get_readme_text())
+
+    gitCreate(git_dir)
+    name = 'obs-{0}'.format(lang_code)
+    desc = 'Open Bible Stories for {0}'.format(lang_code)
+    url = 'http://unfoldingword.org/{0}/'.format(lang_code)
+    githubCreate(git_dir, name, desc, url, github_org)
+    commit_msg = str(status_dict)
+    gitCommit(git_dir, commit_msg)
+    gitPush(git_dir)
+
 
 def uwQA(jsd, lang, status, frontj, backj):
-    '''
+    """
     Implements basic quality control to verify correct number of frames,
     correct JSON formatting, and correct status headers.
-    '''
+    """
     flag = True
-    for header in statusheaders:
+    for header in status_headers:
         if not status.has_key(header):
-            print ('==> !! Cannot export {0}, status page missing header {1}'
+            print('==> !! Cannot export {0}, status page missing header {1}'
                                                         .format(lang, header))
             flag = False
     if 'NOT FOUND.' in str(jsd):
-        print '==> !! Cannot export {0}, invalid JSON format'.format(lang)
+        print('==> !! Cannot export {0}, invalid JSON format'.format(lang))
         flag = False
     framelist = []
     for c in jsonlang['chapters']:
@@ -299,17 +277,17 @@ def uwQA(jsd, lang, status, frontj, backj):
             if len(f['text']) > 10:
                 framelist.append(f['id'])
     frameset = set(framelist)
-    obslangdiff = obsframeset.difference(frameset)
+    obslangdiff = obs_frame_set.difference(frameset)
     if obslangdiff:
-        print '==> !! Cannot export {0}, missing frames:'.format(lang)
+        print('==> !! Cannot export {0}, missing frames:'.format(lang))
         for x in obslangdiff:
-            print x
+            print(x)
         flag = False
-    langobsdiff = frameset.difference(obsframeset)
+    langobsdiff = frameset.difference(obs_frame_set)
     if langobsdiff:
-        print '==> !! Cannot export {0}, extra frames:'.format(lang)
+        print('==> !! Cannot export {0}, extra frames:'.format(lang))
         for x in langobsdiff:
-            print x
+            print(x)
         flag = False
     return flag
 
@@ -318,52 +296,52 @@ def updateUWAdminStatusPage():
     try:
         import obs_published_langs
     except:
-        print 'Could not import obs_published_langs, check path.'
+        print('Could not import obs_published_langs, check path.')
     obs_published_langs.updatePage(obs_published_langs.caturl,
                                               obs_published_langs.uwstatpage)
 
-def getFrontMatter(lang, today):
-    frontpath = os.path.join(pages, lang, 'obs', 'front-matter.txt')
-    if not os.path.exists(frontpath):
-        return getDump({})
-    front = codecs.open(frontpath, 'r', encoding='utf-8').read()
 
-    for l in linkre.findall(front):
-        if '|' in l:
-            cleanurl = l.split(u'|')[1].replace(u']', u'')
-        else:
-            cleanurl = l.replace(u']', u'').replace(u'[', u'')
-        front = front.replace(l, cleanurl)
+def get_front_matter(lang_code, today_str):
+    return_val = OBS.get_front_matter()
+    return_val['language'] = lang_code
+    return_val['date_modified'] = today_str
 
-    obsnamese = obsnamere.search(front)
-    if obsnamese:
-        obsname = obsnamese.group(1)
-    else:
-        obsname = 'Open Bible Stories'
-    taglinese = taglinere.search(front)
-    if taglinese:
-        tagline = taglinese.group(0).split('**')[1].strip()
-    else:
-        tagline = 'an unrestricted visual mini-Bible in any language'
-    return getDump({ 'language': lang,
-                     'name': obsname,
-                     'tagline': tagline,
-                     'front-matter': front,
-                     'date_modified': today
-                   })
+    front_path = os.path.join(pages, lang_code, 'obs', 'front-matter.txt')
+    if os.path.exists(front_path):
+
+        front = codecs.open(front_path, 'r', encoding='utf-8').read()
+
+        for l in link_re.findall(front):
+            if '|' in l:
+                clean_url = l.split(u'|')[1].replace(u']', u'')
+            else:
+                clean_url = l.replace(u']', u'').replace(u'[', u'')
+            front = front.replace(l, clean_url)
+
+        obs_name_se = obs_name_re.search(front)
+        if obs_name_se:
+            return_val['name'] = obs_name_se.group(1)
+
+        tag_line_se = tag_line_re.search(front)
+        if tag_line_se:
+            return_val['tagline'] = tag_line_se.group(0).split('**')[1].strip()
+
+    return return_val
+
 
 def getBackMatter(lang, today):
     backpath = os.path.join(pages, lang, 'obs', 'back-matter.txt')
     if not os.path.exists(backpath):
-        return getDump({})
+        return get_dump({})
     back = codecs.open(backpath, 'r', encoding='utf-8').read()
-    return getDump({ 'language': lang,
-                     'back-matter': cleanText(back, lang, 'back-matter'),
+    return get_dump({'language': lang,
+                     'back-matter': clean_text(back),
                      'date_modified': today
-                   })
+                     })
 
 
 if __name__ == '__main__':
+    exit()
     parser = argparse.ArgumentParser(description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('-l', '--lang', dest="lang", default=False,
@@ -375,21 +353,21 @@ if __name__ == '__main__':
 
     args = parser.parse_args(sys.argv[1:])
     lang = args.lang
-    uwexport = args.uwexport
-    testexport = args.testexport
+    uw_export = args.uwexport
+    test_export = args.testexport
 
     today = ''.join(str(datetime.date.today()).rsplit('-')[0:3])
-    langdict = loadLangStrings(lang_names)
+    langdict = load_lang_strings()
     uwcatpath = os.path.join(unfoldingWord_dir, 'obs-catalog.json')
-    uwcatalog = loadJSON(uwcatpath, 'l')
+    uwcatalog = load_json_object(uwcatpath, [])
     uwcatlangs = [x['language'] for x in uwcatalog]
     catpath = os.path.join(export_dir, 'obs-catalog.json')
-    catalog = loadJSON(catpath, 'l')
+    catalog = load_json_object(catpath, [])
 
     if 'obs' not in os.listdir(os.path.join(pages, lang)):
-        print 'OBS not configured in Door43 for {0}'.format(lang)
+        print('OBS not configured in Door43 for {0}'.format(lang))
         sys.exit(1)
-    app_words = getJSONDict(os.path.join(pages, lang, 'obs/app_words.txt'))
+    app_words = get_json_dict(os.path.join(pages, lang, 'obs/app_words.txt'))
     langdirection = 'ltr'
     if lang in rtl:
         langdirection = 'rtl'
@@ -402,22 +380,22 @@ if __name__ == '__main__':
     page_list = glob.glob('{0}/{1}/obs/[0-5][0-9].txt'.format(pages, lang))
     page_list.sort()
     for page in page_list:
-        jsonchapter = { 'number': numre.search(page).group(1),
+        jsonchapter = { 'number': num_re.search(page).group(1),
                         'frames': [],
                       }
-        jsonlang['chapters'].append(getChapter(page, jsonchapter, lang))
+        jsonlang['chapters'].append(get_chapter(page, jsonchapter))
     jsonlang['chapters'].sort(key=lambda frame: frame['number'])
     jsonlangfilepath = os.path.join(export_dir, lang, 'obs',
                                         'obs-{0}.json'.format(lang))
-    prevjsonlang = loadJSON(jsonlangfilepath, 'd')
-    curjson = getDump(jsonlang)
-    prevjson = getDump(prevjsonlang)
+    prevjsonlang = load_json_object(jsonlangfilepath, {})
+    curjson = get_dump(jsonlang)
+    prevjson = get_dump(prevjsonlang)
     try:
         langstr = langdict[lang]
     except KeyError:
-        print "Configuration for language {0} missing in {1}.".format(lang, lang_names)
+        print("Configuration for language {0} missing in {1}.".format(lang, lang_names))
         sys.exit(1)
-    status = getJSONDict(os.path.join(uwadmin_dir, lang, 'obs/status.txt'))
+    status = get_json_dict(os.path.join(uwadmin_dir, lang, 'obs/status.txt'))
     langcat =  { 'language': lang,
                  'string': langstr,
                  'direction': langdirection,
@@ -429,23 +407,23 @@ if __name__ == '__main__':
     if str(curjson) != str(prevjson):
         ( [x for x in catalog if x['language'] ==
                                         lang][0]['date_modified']) = today
-        writePage(jsonlangfilepath, curjson)
-    if testexport:
-        print 'Testing {0} export...'.format(lang)
-        frontjson = getFrontMatter(lang, today)
+        write_page(jsonlangfilepath, curjson)
+    if test_export:
+        print('Testing {0} export...'.format(lang))
+        frontjson = get_front_matter(lang, today)
         backjson = getBackMatter(lang, today)
         if not uwQA(jsonlang, lang, status, frontjson, backjson):
-            print '---> QA Failed.'
+            print('---> QA Failed.')
             sys.exit(1)
-        print '---> QA Passed.'
+        print('---> QA Passed.')
         sys.exit()
-    if uwexport:
+    if uw_export:
         try:
             pw = open('/root/.github_pass', 'r').read().strip()
             guser = githubLogin('dsm-git', pw)
             githuborg = getGithubOrg('unfoldingword', guser)
         except GithubException as e:
-            print 'Problem logging into Github: {0}'.format(e)
+            print('Problem logging into Github: {0}'.format(e))
             sys.exit(1)
 
         unfoldingWordlangdir = os.path.join(unfoldingWord_dir, lang)
@@ -453,24 +431,24 @@ if __name__ == '__main__':
                                                           'publish_date'):
             if ( status['checking_level'] in ['1', '2', '3'] and
                    status['publish_date'] == str(datetime.date.today()) ):
-                print "=========="
-                frontjson = getFrontMatter(lang, today)
+                print("==========")
+                frontjson = get_front_matter(lang, today)
                 backjson = getBackMatter(lang, today)
                 if not uwQA(jsonlang, lang, status, frontjson, backjson):
-                    print "=========="
+                    print("==========")
                     sys.exit(1)
-                print "---> Exporting to unfoldingWord: {0}".format(lang)
-                exportunfoldingWord(status, unfoldingWordlangdir, curjson,
-                                     lang, githuborg, frontjson, backjson)
+                print("---> Exporting to unfoldingWord: {0}".format(lang))
+                export_unfolding_word(status, unfoldingWordlangdir, curjson,
+                                      lang, githuborg, frontjson, backjson)
                 if lang in uwcatlangs:
                     uwcatalog.pop(uwcatlangs.index(lang))
                     uwcatlangs.pop(uwcatlangs.index(lang))
                 uwcatalog.append(langcat)
-                print "=========="
+                print("==========")
 
-    catjson = getDump(catalog)
-    writePage(catpath, catjson)
-    if uwexport:
-        uwcatjson = getDump(uwcatalog)
-        writePage(uwcatpath, uwcatjson)
+    catjson = get_dump(catalog)
+    write_page(catpath, catjson)
+    if uw_export:
+        uwcatjson = get_dump(uwcatalog)
+        write_page(uwcatpath, uwcatjson)
         updateUWAdminStatusPage()
