@@ -15,21 +15,18 @@ from __future__ import print_function, unicode_literals
 
 import codecs
 import json
-import os
-import sys
 import re
-# import json
-# import glob
-# import codecs
+import glob
 import argparse
 import datetime
 from general_tools.git_wrapper import *
 from general_tools.file_utils import write_file, load_json_object
 from general_tools.smartquotes import smartquotes
-
+from app_code.cli.obs_published_langs import ObsPublishedLangs
 from app_code.obs.obs_classes import OBS
-from app_code.util import app_utils
 from app_code.util.languages import Language
+import os
+import sys
 
 root = '/var/www/vhosts/door43.org/httpdocs/data/gitrepo'
 pages = os.path.join(root, 'pages')
@@ -41,13 +38,13 @@ img_url = 'https://api.unfoldingword.org/obs/jpg/1/{0}/360px/obs-{0}-{1}.jpg'
 
 
 status_headers = ('publish_date',
-                 'version',
-                 'contributors',
-                 'checking_entity',
-                 'checking_level',
-                 'source_text',
-                 'source_text_version',
-                 'comments',
+                  'version',
+                  'contributors',
+                  'checking_entity',
+                  'checking_level',
+                  'source_text',
+                  'source_text_version',
+                  'comments'
                   )
 
 # regular expressions for splitting the chapter into components
@@ -123,7 +120,7 @@ obs_frame_set = set([
 ])
 
 
-def get_chapter(chapter_path, json_chapter):
+def get_chapter(chapter_path, chapter_dict):
 
     with codecs.open(chapter_path, 'r', encoding='utf-8') as in_file:
         chapter = in_file.read()
@@ -131,16 +128,16 @@ def get_chapter(chapter_path, json_chapter):
     # Get title for chapter
     title = title_re.search(chapter)
     if title:
-        json_chapter['title'] = title.group(0).replace('=', '').strip()
+        chapter_dict['title'] = title.group(0).replace('=', '').strip()
     else:
-        json_chapter['title'] = u'NOT FOUND'
+        chapter_dict['title'] = u'NOT FOUND'
         print('NOT FOUND: title in {0}'.format(chapter_path))
     # Get reference for chapter
     ref = ref_re.search(chapter)
     if ref:
-        json_chapter['ref'] = ref.group(0).replace('/', '').strip()
+        chapter_dict['ref'] = ref.group(0).replace('/', '').strip()
     else:
-        json_chapter['ref'] = u'NOT FOUND'
+        chapter_dict['ref'] = u'NOT FOUND'
         print('NOT FOUND: reference in {0}'.format(chapter_path))
     # Get the frames
     for fr in frame_re.findall(chapter):
@@ -155,10 +152,10 @@ def get_chapter(chapter_path, json_chapter):
                   'img': get_img(fr_lines[0].strip(), fr_id),
                   'text': get_text(fr_lines[1:])
                 }
-        json_chapter['frames'].append(frame)
+        chapter_dict['frames'].append(frame)
     # Sort frames
-    json_chapter['frames'].sort(key=lambda f: f['id'])
-    return json_chapter
+    chapter_dict['frames'].sort(key=lambda f: f['id'])
+    return chapter_dict
 
 
 def get_img(link, frame_id):
@@ -234,15 +231,13 @@ def clean_status(status_dict):
     return status
 
 
-def export_unfolding_word(status_dict, git_dir, json_data, lang_code, github_org, frontj, backj):
+def export_unfolding_word(status_dict, git_dir, json_data, lang_code, github_org, front_matter, back_matter):
     """
     Exports JSON data for each language into its own Github repo.
     """
     write_page(os.path.join(git_dir, 'obs-{0}.json'.format(lang_code)), json_data)
-    write_page(os.path.join(git_dir, 'obs-{0}-front-matter.json'.format(lang_code)),
-               frontj)
-    write_page(os.path.join(git_dir, 'obs-{0}-back-matter.json'.format(lang_code)),
-               backj)
+    write_page(os.path.join(git_dir, 'obs-{0}-front-matter.json'.format(lang_code)), front_matter)
+    write_page(os.path.join(git_dir, 'obs-{0}-back-matter.json'.format(lang_code)), back_matter)
 
     write_page(os.path.join(git_dir, 'status-{0}.json'.format(lang_code)), clean_status(status_dict))
     write_page(os.path.join(git_dir, 'README.md'), OBS.get_readme_text())
@@ -257,48 +252,42 @@ def export_unfolding_word(status_dict, git_dir, json_data, lang_code, github_org
     gitPush(git_dir)
 
 
-def uwQA(jsd, lang, status, frontj, backj):
+def uw_qa(jsd, lang_code, status_dict):
     """
     Implements basic quality control to verify correct number of frames,
     correct JSON formatting, and correct status headers.
     """
     flag = True
     for header in status_headers:
-        if not status.has_key(header):
-            print('==> !! Cannot export {0}, status page missing header {1}'
-                                                        .format(lang, header))
+        if header not in status_dict:
+            print('==> !! Cannot export {0}, status page missing header {1}'.format(lang_code, header))
             flag = False
     if 'NOT FOUND.' in str(jsd):
-        print('==> !! Cannot export {0}, invalid JSON format'.format(lang))
+        print('==> !! Cannot export {0}, invalid JSON format'.format(lang_code))
         flag = False
-    framelist = []
-    for c in jsonlang['chapters']:
+    frame_list = []
+    for c in json_lang['chapters']:
         for f in c['frames']:
             if len(f['text']) > 10:
-                framelist.append(f['id'])
-    frameset = set(framelist)
-    obslangdiff = obs_frame_set.difference(frameset)
-    if obslangdiff:
-        print('==> !! Cannot export {0}, missing frames:'.format(lang))
-        for x in obslangdiff:
+                frame_list.append(f['id'])
+    frameset = set(frame_list)
+    obs_lang_diff = obs_frame_set.difference(frameset)
+    if obs_lang_diff:
+        print('==> !! Cannot export {0}, missing frames:'.format(lang_code))
+        for x in obs_lang_diff:
             print(x)
         flag = False
-    langobsdiff = frameset.difference(obs_frame_set)
-    if langobsdiff:
-        print('==> !! Cannot export {0}, extra frames:'.format(lang))
-        for x in langobsdiff:
+    lang_obs_diff = frameset.difference(obs_frame_set)
+    if lang_obs_diff:
+        print('==> !! Cannot export {0}, extra frames:'.format(lang_code))
+        for x in lang_obs_diff:
             print(x)
         flag = False
     return flag
 
-def updateUWAdminStatusPage():
-    sys.path.append('/var/www/vhosts/door43.org/tools/obs/dokuwiki')
-    try:
-        import obs_published_langs
-    except:
-        print('Could not import obs_published_langs, check path.')
-    obs_published_langs.updatePage(obs_published_langs.caturl,
-                                              obs_published_langs.uwstatpage)
+
+def update_uw_admin_status_page():
+    ObsPublishedLangs.update_page(ObsPublishedLangs.cat_url, ObsPublishedLangs.uw_stat_page)
 
 
 def get_front_matter(lang_code, today_str):
@@ -309,7 +298,8 @@ def get_front_matter(lang_code, today_str):
     front_path = os.path.join(pages, lang_code, 'obs', 'front-matter.txt')
     if os.path.exists(front_path):
 
-        front = codecs.open(front_path, 'r', encoding='utf-8').read()
+        with codecs.open(front_path, 'r', encoding='utf-8') as in_file:
+            front = in_file.read()
 
         for l in link_re.findall(front):
             if '|' in l:
@@ -317,6 +307,8 @@ def get_front_matter(lang_code, today_str):
             else:
                 clean_url = l.replace(u']', u'').replace(u'[', u'')
             front = front.replace(l, clean_url)
+
+        return_val['front-matter'] = front
 
         obs_name_se = obs_name_re.search(front)
         if obs_name_se:
@@ -329,27 +321,31 @@ def get_front_matter(lang_code, today_str):
     return return_val
 
 
-def getBackMatter(lang, today):
-    backpath = os.path.join(pages, lang, 'obs', 'back-matter.txt')
-    if not os.path.exists(backpath):
-        return get_dump({})
-    back = codecs.open(backpath, 'r', encoding='utf-8').read()
-    return get_dump({'language': lang,
-                     'back-matter': clean_text(back),
-                     'date_modified': today
-                     })
+def get_back_matter(lang_code, today_str):
+    return_val = OBS.get_front_matter()
+    return_val['language'] = lang_code
+    return_val['date_modified'] = today_str
+
+    back_path = os.path.join(pages, lang_code, 'obs', 'back-matter.txt')
+    if os.path.exists(back_path):
+        with codecs.open(back_path, 'r', encoding='utf-8') as in_file:
+            back = in_file.read()
+
+        return_val['back-matter'] = clean_text(back)
+
+    return return_val
 
 
 if __name__ == '__main__':
     exit()
     parser = argparse.ArgumentParser(description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter)
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('-l', '--lang', dest="lang", default=False,
-        required=True, help="Language code of resource.")
+                        required=True, help="Language code of resource.")
     parser.add_argument('-e', '--export', dest="uwexport", default=False,
-        action='store_true', help="Export to unfoldingWord.")
+                        action='store_true', help="Export to unfoldingWord.")
     parser.add_argument('-t', '--testexport', dest="testexport", default=False,
-        action='store_true', help="Test export to unfoldingWord.")
+                        action='store_true', help="Test export to unfoldingWord.")
 
     args = parser.parse_args(sys.argv[1:])
     lang = args.lang
@@ -357,62 +353,62 @@ if __name__ == '__main__':
     test_export = args.testexport
 
     today = ''.join(str(datetime.date.today()).rsplit('-')[0:3])
-    langdict = load_lang_strings()
-    uwcatpath = os.path.join(unfoldingWord_dir, 'obs-catalog.json')
-    uwcatalog = load_json_object(uwcatpath, [])
-    uwcatlangs = [x['language'] for x in uwcatalog]
-    catpath = os.path.join(export_dir, 'obs-catalog.json')
-    catalog = load_json_object(catpath, [])
+    lang_dict = load_lang_strings()
+    uw_cat_path = os.path.join(unfoldingWord_dir, 'obs-catalog.json')
+    uw_catalog = load_json_object(uw_cat_path, [])
+    uw_cat_langs = [x['language'] for x in uw_catalog]
+    cat_path = os.path.join(export_dir, 'obs-catalog.json')
+    catalog = load_json_object(cat_path, [])
 
     if 'obs' not in os.listdir(os.path.join(pages, lang)):
         print('OBS not configured in Door43 for {0}'.format(lang))
         sys.exit(1)
     app_words = get_json_dict(os.path.join(pages, lang, 'obs/app_words.txt'))
-    langdirection = 'ltr'
+    lang_direction = 'ltr'
     if lang in rtl:
-        langdirection = 'rtl'
-    jsonlang = { 'language': lang,
-                 'direction': langdirection,
+        lang_direction = 'rtl'
+    json_lang = {'language': lang,
+                 'direction': lang_direction,
                  'chapters': [],
                  'app_words': app_words,
                  'date_modified': today,
-               }
+                 }
     page_list = glob.glob('{0}/{1}/obs/[0-5][0-9].txt'.format(pages, lang))
     page_list.sort()
     for page in page_list:
-        jsonchapter = { 'number': num_re.search(page).group(1),
+        json_chapter = {'number': num_re.search(page).group(1),
                         'frames': [],
-                      }
-        jsonlang['chapters'].append(get_chapter(page, jsonchapter))
-    jsonlang['chapters'].sort(key=lambda frame: frame['number'])
-    jsonlangfilepath = os.path.join(export_dir, lang, 'obs',
-                                        'obs-{0}.json'.format(lang))
-    prevjsonlang = load_json_object(jsonlangfilepath, {})
-    curjson = get_dump(jsonlang)
-    prevjson = get_dump(prevjsonlang)
+                        }
+        json_lang['chapters'].append(get_chapter(page, json_chapter))
+    json_lang['chapters'].sort(key=lambda frame: frame['number'])
+    json_lang_file_path = os.path.join(export_dir, lang, 'obs', 'obs-{0}.json'.format(lang))
+    prev_json_lang = load_json_object(json_lang_file_path, {})
+    cur_json = get_dump(json_lang)
+    prev_json = get_dump(prev_json_lang)
     try:
-        langstr = langdict[lang]
+        langstr = lang_dict[lang]
     except KeyError:
-        print("Configuration for language {0} missing in {1}.".format(lang, lang_names))
+        print("Configuration for language {0} missing.".format(lang))
         sys.exit(1)
     status = get_json_dict(os.path.join(uwadmin_dir, lang, 'obs/status.txt'))
-    langcat =  { 'language': lang,
-                 'string': langstr,
-                 'direction': langdirection,
-                 'date_modified': today,
-                 'status': status,
-               }
-    if not lang in [x['language'] for x in catalog]:
-        catalog.append(langcat)
-    if str(curjson) != str(prevjson):
-        ( [x for x in catalog if x['language'] ==
-                                        lang][0]['date_modified']) = today
-        write_page(jsonlangfilepath, curjson)
+    lang_cat = {'language': lang,
+                'string': langstr,
+                'direction': lang_direction,
+                'date_modified': today,
+                'status': status,
+                }
+    if lang not in [x['language'] for x in catalog]:
+        catalog.append(lang_cat)
+
+    if str(cur_json) != str(prev_json):
+        ([x for x in catalog if x['language'] == lang][0]['date_modified']) = today
+        write_page(json_lang_file_path, cur_json)
+
     if test_export:
         print('Testing {0} export...'.format(lang))
-        frontjson = get_front_matter(lang, today)
-        backjson = getBackMatter(lang, today)
-        if not uwQA(jsonlang, lang, status, frontjson, backjson):
+        front_json = get_front_matter(lang, today)
+        back_json = get_back_matter(lang, today)
+        if not uw_qa(json_lang, lang, status):
             print('---> QA Failed.')
             sys.exit(1)
         print('---> QA Passed.')
@@ -420,35 +416,33 @@ if __name__ == '__main__':
     if uw_export:
         try:
             pw = open('/root/.github_pass', 'r').read().strip()
-            guser = githubLogin('dsm-git', pw)
-            githuborg = getGithubOrg('unfoldingword', guser)
+            g_user = githubLogin('dsm-git', pw)
+            github_org = getGithubOrg('unfoldingword', g_user)
         except GithubException as e:
             print('Problem logging into Github: {0}'.format(e))
             sys.exit(1)
 
-        unfoldingWordlangdir = os.path.join(unfoldingWord_dir, lang)
-        if status.has_key('checking_level') and status.has_key(
-                                                          'publish_date'):
-            if ( status['checking_level'] in ['1', '2', '3'] and
-                   status['publish_date'] == str(datetime.date.today()) ):
+        unfolding_word_lang_dir = os.path.join(unfoldingWord_dir, lang)
+        if 'checking_level' in status and 'publish_date' in status:
+            if status['checking_level'] in ['1', '2', '3'] and status['publish_date'] == str(datetime.date.today()):
                 print("==========")
-                frontjson = get_front_matter(lang, today)
-                backjson = getBackMatter(lang, today)
-                if not uwQA(jsonlang, lang, status, frontjson, backjson):
+                front_json = get_front_matter(lang, today)
+                back_json = get_back_matter(lang, today)
+                if not uw_qa(json_lang, lang, status):
                     print("==========")
                     sys.exit(1)
                 print("---> Exporting to unfoldingWord: {0}".format(lang))
-                export_unfolding_word(status, unfoldingWordlangdir, curjson,
-                                      lang, githuborg, frontjson, backjson)
-                if lang in uwcatlangs:
-                    uwcatalog.pop(uwcatlangs.index(lang))
-                    uwcatlangs.pop(uwcatlangs.index(lang))
-                uwcatalog.append(langcat)
+                export_unfolding_word(status, unfolding_word_lang_dir, cur_json,
+                                      lang, github_org, front_json, back_json)
+                if lang in uw_cat_langs:
+                    uw_catalog.pop(uw_cat_langs.index(lang))
+                    uw_cat_langs.pop(uw_cat_langs.index(lang))
+                uw_catalog.append(lang_cat)
                 print("==========")
 
-    catjson = get_dump(catalog)
-    write_page(catpath, catjson)
+    cat_json = get_dump(catalog)
+    write_page(cat_path, cat_json)
     if uw_export:
-        uwcatjson = get_dump(uwcatalog)
-        write_page(uwcatpath, uwcatjson)
-        updateUWAdminStatusPage()
+        uw_cat_json = get_dump(uw_catalog)
+        write_page(uw_cat_path, uw_cat_json)
+        update_uw_admin_status_page()
