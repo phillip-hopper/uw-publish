@@ -1,6 +1,5 @@
 from __future__ import unicode_literals
-
-from general_tools.file_utils import load_json_object
+import json
 from general_tools.url_utils import get_url
 
 
@@ -8,7 +7,7 @@ class Language(object):
     def __init__(self, json_obj=None):
         """
         Class constructor. Optionally accepts an object for initialization.
-        :param object json_obj: The name of a file to deserialize into a OBSStatus object
+        :param object json_obj: An object to initialize the instance member variables
         """
         # deserialize
         if json_obj:
@@ -30,7 +29,7 @@ class Language(object):
         return_val = []
 
         lang_file = 'http://td.unfoldingword.org/exports/langnames.json'
-        langs = load_json_object(get_url(lang_file))
+        langs = json.loads(get_url(lang_file))
         for lang in langs:
             return_val.append(Language(lang))
 

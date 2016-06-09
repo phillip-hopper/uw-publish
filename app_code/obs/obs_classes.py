@@ -1,11 +1,9 @@
 from __future__ import print_function, unicode_literals
-
 import codecs
 from datetime import datetime
 import os
 import chapters_and_frames
 from general_tools.file_utils import load_json_object
-
 from app_code.util import app_utils
 
 
@@ -54,6 +52,16 @@ class OBSChapter(object):
         :returns list<str>
         """
         errors = []
+
+        if not self.title:
+            msg = 'Title not found: {0}'.format(self.number)
+            print(msg)
+            errors.append(msg)
+
+        if not self.ref:
+            msg = 'Ref not found: {0}'.format(self.number)
+            print(msg)
+            errors.append(msg)
 
         chapter_index = int(self.number) - 1
 
