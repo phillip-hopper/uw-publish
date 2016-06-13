@@ -12,7 +12,6 @@
 #  Requires PyGithub for unfoldingWord export.
 
 from __future__ import print_function, unicode_literals
-
 import codecs
 import json
 import re
@@ -23,7 +22,7 @@ from general_tools.git_wrapper import *
 from general_tools.file_utils import write_file, load_json_object
 from general_tools.smartquotes import smartquotes
 from app_code.cli.obs_published_langs import ObsPublishedLangs
-from app_code.obs.obs_classes import OBS, OBSChapter
+from app_code.obs.obs_classes import OBS, OBSChapter, OBSEncoder
 from app_code.util.languages import Language
 import os
 import sys
@@ -308,7 +307,7 @@ if __name__ == '__main__':
     obs_obj.chapters.sort(key=lambda frame: frame['number'])
     json_lang_file_path = os.path.join(export_dir, lang, 'obs', 'obs-{0}.json'.format(lang))
     prev_json_lang = load_json_object(json_lang_file_path, {})
-    cur_json = get_dump(obs_obj)
+    cur_json = json.dumps(obs_obj, sort_keys=True, cls=OBSEncoder)
     prev_json = get_dump(prev_json_lang)
 
     if lang not in lang_dict:
@@ -316,6 +315,9 @@ if __name__ == '__main__':
         sys.exit(1)
 
     status = get_json_dict(os.path.join(uwadmin_dir, lang, 'obs/status.txt'))
+    if not status:
+        status = OBS.get_status()
+
     lang_cat = {'language': lang,
                 'string': lang_dict[lang],
                 'direction': lang_direction,
