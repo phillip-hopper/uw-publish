@@ -166,7 +166,7 @@ def main(git_repo, tag, no_pdf):
 
     # update the catalog
     print_ok('STARTING: ', 'updating the catalogs.')
-    # update_catalog()
+    update_catalog()
     print_ok('FINISHED: ', 'updating the catalogs.')
 
     if no_pdf:
