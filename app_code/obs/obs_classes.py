@@ -1,6 +1,7 @@
 from __future__ import print_function, unicode_literals
 import codecs
 import re
+from collections import OrderedDict
 from datetime import datetime
 import os
 from json import JSONEncoder
@@ -231,6 +232,70 @@ class OBS(object):
         return return_val
 
 
+class OBSSourceTranslation(object):
+    def __init__(self):
+        self.language_slug = ''
+        self.resource_slug = ''
+        self.version = ''
+
+    def to_serializable(self):
+        return self.__dict__
+
+
+class OBSManifest(object):
+    def __init__(self, file_name=None):
+        """
+        Class constructor. Optionally accepts the name of a file to deserialize.
+        :param str file_name: The name of a file to deserialize into a OBSManifest object
+        """
+        # deserialize
+        if file_name:
+            if os.path.isfile(file_name):
+                self.__dict__ = load_json_object(file_name)
+            else:
+                raise IOError('The file {0} was not found.'.format(file_name))
+        else:
+            self.syntax_version = '1.0'
+            self.type = 'book'
+            self.content_mime_type = 'text/markdown'
+            self.slug = 'obs'
+            self.name = 'Open Bible Stories'
+            self.versification_slug = 'ufw'
+            self.finished_chunks = []
+            self.language = {'slug': 'en', 'name': 'English', 'dir': 'ltr'}
+            self.status = {'translate_mode': 'all', 'checking_entity': [], 'checking_level': '1', 'version': '4',
+                           'comments': '', 'contributors': [], 'pub_date': datetime.today().strftime('%Y-%m-%d'),
+                           'license': 'CC BY-SA', 'checks_performed': [],
+                           'source_translations': []}
+
+    def __contains__(self, item):
+        return item in self.__dict__
+
+    def to_serializable(self):
+        return_val = OrderedDict([
+            ('syntax_version', self.syntax_version),
+            ('type', self.type),
+            ('content_mime_type', self.content_mime_type),
+            ('language', self.language),
+            ('slug', self.slug),
+            ('name', self.name),
+            ('versification_slug', self.versification_slug),
+            ('status', self.status),
+            ('finished_chunks', self.finished_chunks)
+        ])
+
+        return return_val
+
+
 class OBSEncoder(JSONEncoder):
     def default(self, o):
         return o.__dict__
+
+
+class OBSManifestEncoder(JSONEncoder):
+    def default(self, o):
+        """
+        :param OBSManifest o:
+        :return:
+        """
+        return o.to_serializable()
