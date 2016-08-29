@@ -18,7 +18,7 @@ import subprocess
 import sys
 from uw.update_catalog import update_catalog
 from app_code.cli.obs_in_progress import ObsInProgress
-from app_code.obs.obs_classes import OBSStatus, OBS
+from obs.obs_classes import OBSStatus, OBS
 from general_tools.file_utils import make_dir
 from general_tools.print_utils import print_warning, print_error, print_notice, print_ok
 from general_tools.url_utils import download_file, get_languages, join_url_parts

@@ -16,7 +16,7 @@ import os
 import re
 import sys
 from general_tools.file_utils import write_file
-from app_code.obs.obs_classes import OBS, OBSManifest, OBSManifestEncoder, OBSSourceTranslation
+from obs.obs_classes import OBS, OBSManifest, OBSManifestEncoder, OBSSourceTranslation
 from general_tools.print_utils import print_warning, print_error, print_ok
 from general_tools.url_utils import get_languages, join_url_parts, get_url
 

@@ -22,8 +22,8 @@ from general_tools.git_wrapper import *
 from general_tools.print_utils import print_error, print_ok, print_notice
 from general_tools.url_utils import join_url_parts, download_file
 from app_code.cli.obs_published_langs import ObsPublishedLangs
-from app_code.obs.export_to_tex import OBSTexExport
-from app_code.obs.obs_classes import OBSStatus, OBS, OBSChapter, OBSEncoder
+from obs.export_to_tex import OBSTexExport
+from obs.obs_classes import OBSStatus, OBS, OBSChapter, OBSEncoder
 from uw.update_catalog import update_catalog
 import sys
 import os

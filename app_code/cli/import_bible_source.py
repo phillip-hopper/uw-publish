@@ -73,7 +73,7 @@ def main(resource, lang, slug, name, checking, contrib, ver, check_level,
 
         # there are usfm files, which book is this?
         test_dir = root.rpartition('/')[2]
-        book = next((b for b in vrs if b.dir_name == test_dir), None)
+        book = next((b for b in vrs if b.dir_name == test_dir), None)  # type: Book
 
         if book:
             book_text = ''

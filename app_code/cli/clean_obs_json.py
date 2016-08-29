@@ -18,7 +18,7 @@ import argparse
 import codecs
 import json
 import sys
-from app_code.obs.obs_classes import OBS
+from obs.obs_classes import OBS
 
 
 def clean_obs_json_file(json_file):
