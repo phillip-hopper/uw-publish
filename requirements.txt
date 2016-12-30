@@ -4,4 +4,4 @@ pyparsing
 pyyaml
 future
 git+git://github.com/unfoldingWord-dev/uw_tools.git#egg=uw_tools
-git+git://github.com/unfoldingWord-dev/USFM-Tools.git#egg=usfm_tools
+git+git://github.com/phillip-hopper-dev/USFM-Tools.git@sts-tag#egg=usfm_tools
